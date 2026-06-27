@@ -81,7 +81,7 @@ function section(title) { const e = E('div', 'section-title'); e.textContent = t
 function sep() { return E('hr', 'sep'); }
 
 function show() { $('empty').classList.add('hidden'); $('results').classList.remove('hidden'); $('error').classList.add('hidden'); }
-function hideAll() { ['whois','dns','ip','summary'].forEach(id => $(`card-${id}`).classList.add('hidden')); }
+function hideAll() { ['whois','ssl','dns','ip','summary'].forEach(id => $(`card-${id}`).classList.add('hidden')); }
 
 async function go() {
   const t = $('search').value.trim();
@@ -106,6 +106,22 @@ function err(msg) {
 }
 
 function renderDomain(d) {
+  // SSL
+  const ssl = d.ssl || {};
+  const sslBody = $('body-ssl'); sslBody.innerHTML = '';
+  if (ssl.ok) {
+    sslBody.append(row('Subject', ssl.subject || '—'));
+    sslBody.append(row('Issuer', ssl.issuer || '—', 'yellow'));
+    sslBody.append(row('Valid from', ssl.not_before || '—'));
+    const days = ssl.days;
+    const cls = days === null ? '' : days < 0 ? 'red' : days < 30 ? 'yellow' : 'green';
+    const label = days !== null ? (days < 0 ? ' (EXPIRED ' + (-days) + 'd ago)' : ' (' + days + 'd left)') : '';
+    sslBody.append(row('Valid until', (ssl.not_after || '—') + label, cls));
+  } else {
+    sslBody.append(row('', 'No SSL / connection failed', 'red'));
+  }
+  $('card-ssl').classList.remove('hidden');
+
   // WHOIS
   const w = $('body-whois'); w.innerHTML = '';
   const whois = d.whois;
