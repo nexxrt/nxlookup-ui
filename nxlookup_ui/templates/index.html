@@ -55,6 +55,7 @@ main { flex: 1; padding: 20px 24px; max-width: 900px; margin: 0 auto; width: 100
 <main>
   <div id="empty"><b>nxlookup</b> — domain &amp; IP investigation<br>Enter a domain or IP above</div>
   <div id="results" class="hidden">
+        <div id="card-ssl" class="card hidden"><div class="card-header"><span class="dot" style="color:var(--green)">●</span> SSL Certificate</div><div class="card-body" id="body-ssl"></div></div>
     <div id="card-whois" class="card hidden"><div class="card-header"><span class="dot" style="color:var(--green)">●</span> WHOIS</div><div class="card-body" id="body-whois"></div></div>
     <div id="card-dns" class="card hidden"><div class="card-header"><span class="dot" style="color:var(--accent)">●</span> DNS Records</div><div class="card-body" id="body-dns"></div></div>
     <div id="card-ip" class="card hidden"><div class="card-header"><span class="dot" style="color:var(--yellow)">●</span> IP Analysis</div><div class="card-body" id="body-ip"></div></div>
