@@ -110,8 +110,10 @@ function renderDomain(d) {
   const ssl = d.ssl || {};
   const sslBody = $('body-ssl'); sslBody.innerHTML = '';
   if (ssl.ok) {
-    sslBody.append(row('Subject', ssl.subject || '—'));
-    sslBody.append(row('Issuer', ssl.issuer || '—', 'yellow'));
+    if (ssl.subject_cn) sslBody.append(row('Issued to', ssl.subject_cn, 'green'));
+    if (ssl.subject_o) sslBody.append(row('Organization', ssl.subject_o));
+    if (ssl.issuer_cn) sslBody.append(row('Issued by', ssl.issuer_cn, 'yellow'));
+    if (ssl.issuer_o) sslBody.append(row('Issuer Org', ssl.issuer_o));
     sslBody.append(row('Valid from', ssl.not_before || '—'));
     const days = ssl.days;
     const cls = days === null ? '' : days < 0 ? 'red' : days < 30 ? 'yellow' : 'green';
@@ -119,6 +121,23 @@ function renderDomain(d) {
     sslBody.append(row('Valid until', (ssl.not_after || '—') + label, cls));
   } else {
     sslBody.append(row('', 'No SSL / connection failed', 'red'));
+  }
+  // HTTP status
+  const http = d.http || {};
+  if (http.ok) {
+    ['HTTPS','HTTP'].forEach(proto => {
+      const key = proto.toLowerCase();
+      const code = http[key];
+      if (code) {
+        const msgs = {301:'Moved Permanently',302:'Found',307:'Temporary Redirect',308:'Permanent Redirect',
+                      400:'Bad Request',401:'Unauthorized',403:'Forbidden',404:'Not Found',
+                      405:'Method Not Allowed',429:'Too Many Requests',
+                      500:'Internal Server Error',502:'Bad Gateway',503:'Service Unavailable',504:'Gateway Timeout'};
+        const cls = code < 300 ? 'green' : code < 400 ? 'yellow' : 'red';
+        const msg = msgs[code] || '';
+        sslBody.append(row(proto, 'HTTP ' + code + (msg ? ' — ' + msg : ''), cls));
+      }
+    });
   }
   $('card-ssl').classList.remove('hidden');
 

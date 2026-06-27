@@ -1,5 +1,5 @@
 from flask import Flask, render_template, request, jsonify
-from .core import domain_whois, ip_whois, dns_all, ptr_lookup, ssl_check, is_ip, is_domain, clean_target
+from .core import domain_whois, ip_whois, dns_all, ptr_lookup, ssl_check, http_check, is_ip, is_domain, clean_target
 from datetime import datetime, timezone
 import webview
 import threading
@@ -67,11 +67,13 @@ def _lookup_domain(domain: str, display: str) -> dict:
         })
 
     ssl = ssl_check(domain)
+    http = http_check(domain)
 
     return {
         "type": "domain",
         "target": display,
         "ssl": ssl,
+        "http": http,
         "whois": {
             "domain": w.get("domain", ""),
             "registrar": w.get("registrar", ""),
