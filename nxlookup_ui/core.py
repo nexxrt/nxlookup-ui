@@ -266,6 +266,30 @@ def ip_whois(ip: str) -> dict:
 
 # ── Helpers ────────────────────────────────────────────────────────────
 
+def ssl_check(domain: str) -> dict:
+    """Fetch SSL certificate info."""
+    import ssl as _ssl, socket as _socket
+    result = {"ok": False, "issuer": "", "subject": "", "not_before": "", "not_after": "", "days": None, "error": ""}
+    try:
+        ctx = _ssl.create_default_context()
+        with _socket.create_connection((domain, 443), timeout=8) as sock:
+            with ctx.wrap_socket(sock, server_hostname=domain) as ssock:
+                cert = ssock.getpeercert()
+        result["ok"] = True
+        issuer_parts = [v for item in cert.get("issuer", []) for k, v in item if k == "commonName"]
+        result["issuer"] = ", ".join(issuer_parts) if issuer_parts else "—"
+        subj_parts = [v for item in cert.get("subject", []) for k, v in item if k == "commonName"]
+        result["subject"] = ", ".join(subj_parts) if subj_parts else "—"
+        result["not_before"] = cert.get("notBefore", "")
+        result["not_after"] = cert.get("notAfter", "")
+        na = cert.get("notAfter", "")
+        if na:
+            import datetime
+            result["days"] = (datetime.datetime.strptime(na, "%b %d %H:%M:%S %Y %Z") - datetime.datetime.utcnow()).days
+        return result
+    except Exception as e:
+        result["error"] = str(e)
+        return result
 def is_ip(target: str) -> bool:
     try:
         ipaddress.ip_address(target)
