@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>nxlookup</title>
+<style>
+:root {
+  --bg: #0d1117; --card: #161b22; --border: #30363d;
+  --text: #c9d1d9; --dim: #8b949e; --accent: #58a6ff;
+  --green: #3fb950; --yellow: #d2991d; --red: #f85149;
+  --font: 'Segoe UI', system-ui, sans-serif;
+  --mono: 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { background: var(--bg); color: var(--text); font-family: var(--font); min-height: 100vh; display: flex; flex-direction: column; }
+header { background: var(--card); border-bottom: 1px solid var(--border); padding: 16px 24px; display: flex; align-items: center; gap: 16px; }
+header h1 { font-size: 22px; font-weight: 700; color: var(--text); }
+header h1 span { color: var(--accent); }
+#search { flex: 1; max-width: 480px; padding: 10px 16px; background: var(--bg); border: 1px solid var(--border); border-radius: 8px; color: var(--text); font-size: 15px; outline: none; }
+#search:focus { border-color: var(--accent); }
+#btn { padding: 10px 24px; background: var(--accent); color: #fff; border: none; border-radius: 8px; font-size: 15px; font-weight: 600; cursor: pointer; }
+#btn:hover { opacity: .85; }
+#btn:disabled { opacity: .4; cursor: default; }
+main { flex: 1; padding: 20px 24px; max-width: 900px; margin: 0 auto; width: 100%; }
+.card { background: var(--card); border: 1px solid var(--border); border-radius: 10px; margin-bottom: 16px; overflow: hidden; }
+.card-header { padding: 10px 16px; font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: .5px; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 8px; }
+.card-header .dot { font-size: 10px; }
+.card-body { padding: 14px 16px; font-family: var(--mono); font-size: 13px; line-height: 1.6; }
+.row { display: flex; gap: 12px; padding: 2px 0; }
+.key { color: var(--dim); min-width: 130px; flex-shrink: 0; }
+.val { word-break: break-all; }
+.green { color: var(--green); }
+.yellow { color: var(--yellow); }
+.red { color: var(--red); }
+.dim { color: var(--dim); }
+.section-title { color: var(--dim); font-weight: 700; font-size: 12px; margin: 12px 0 4px; text-transform: uppercase; letter-spacing: .3px; }
+.sep { border: none; border-top: 1px solid var(--border); margin: 10px 0; }
+#status { text-align: center; padding: 8px; color: var(--dim); font-size: 12px; }
+#empty { text-align: center; padding: 80px 20px; color: var(--dim); font-size: 15px; }
+#empty b { color: var(--text); }
+.hidden { display: none; }
+#error .card-header { border-color: var(--red); }
+#error .dot { color: var(--red); }
+.spinner { display: inline-block; width: 14px; height: 14px; border: 2px solid var(--dim); border-top-color: var(--accent); border-radius: 50%; animation: spin .6s linear infinite; margin-right: 8px; }
+@keyframes spin { to { transform: rotate(360deg); } }
+</style>
+</head>
+<body>
+<header>
+  <h1>nx<span>lookup</span></h1>
+  <input id="search" placeholder="domain or IP..." autofocus>
+  <button id="btn" onclick="go()">Lookup</button>
+</header>
+<main>
+  <div id="empty"><b>nxlookup</b> — domain &amp; IP investigation<br>Enter a domain or IP above</div>
+  <div id="results" class="hidden">
+    <div id="card-whois" class="card hidden"><div class="card-header"><span class="dot" style="color:var(--green)">●</span> WHOIS</div><div class="card-body" id="body-whois"></div></div>
+    <div id="card-dns" class="card hidden"><div class="card-header"><span class="dot" style="color:var(--accent)">●</span> DNS Records</div><div class="card-body" id="body-dns"></div></div>
+    <div id="card-ip" class="card hidden"><div class="card-header"><span class="dot" style="color:var(--yellow)">●</span> IP Analysis</div><div class="card-body" id="body-ip"></div></div>
+    <div id="card-summary" class="card hidden"><div class="card-header"><span class="dot" style="color:var(--accent)">●</span> Summary</div><div class="card-body" id="body-summary"></div></div>
+  </div>
+  <div id="error" class="card hidden"><div class="card-header"><span class="dot">●</span> Error</div><div class="card-body" id="body-error"></div></div>
+</main>
+<div id="status"></div>
+
+<script>
+const $ = id => document.getElementById(id);
+const E = (tag, cls, text) => { const e = document.createElement(tag); if(cls) e.className = cls; if(text) e.textContent = text; return e; };
+
+function row(k, v, vcls) {
+  const d = E('div', 'row');
+  d.append(E('span', 'key', k ? k + ':' : ''));
+  const val = E('span', 'val ' + (vcls || ''));
+  val.textContent = v;
+  d.append(val);
+  return d;
+}
+function section(title) { const e = E('div', 'section-title'); e.textContent = title; return e; }
+function sep() { return E('hr', 'sep'); }
+
+function show() { $('empty').classList.add('hidden'); $('results').classList.remove('hidden'); $('error').classList.add('hidden'); }
+function hideAll() { ['whois','dns','ip','summary'].forEach(id => $(`card-${id}`).classList.add('hidden')); }
+
+async function go() {
+  const t = $('search').value.trim();
+  if (!t) return;
+  $('btn').disabled = true;
+  $('status').innerHTML = '<span class="spinner"></span>Looking up ' + t + '...';
+  hideAll(); show();
+  try {
+    const r = await fetch('/api/lookup', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({target: t}) });
+    const data = await r.json();
+    if (data.error) { err(data.error); return; }
+    data.type === 'domain' ? renderDomain(data) : renderIP(data);
+  } catch(e) { err(e.message); }
+  finally { $('btn').disabled = false; $('status').textContent = 'Done: ' + t; }
+}
+
+function err(msg) {
+  hideAll(); show(); $('error').classList.remove('hidden');
+  $('body-error').textContent = msg;
+  $('status').textContent = 'Error';
+  $('btn').disabled = false;
+}
+
+function renderDomain(d) {
+  // WHOIS
+  const w = $('body-whois'); w.innerHTML = '';
+  const whois = d.whois;
+  if (!whois.domain) { w.append(row('', 'No WHOIS data', 'red')); }
+  else {
+    w.append(row('Domain', whois.domain, 'green'));
+    if (whois.registrar) w.append(row('Registrar', whois.registrar, 'yellow'));
+    if (whois.whois_server) w.append(row('WHOIS Server', whois.whois_server, 'dim'));
+    if (whois.org) w.append(row('Organization', whois.org));
+    if (whois.created) w.append(row('Created', whois.created));
+    if (whois.expires) {
+      const days = whois.expires_days;
+      const cls = days === null ? '' : days < 0 ? 'red' : days < 30 ? 'yellow' : 'green';
+      const label = days !== null ? (days < 0 ? ' (EXPIRED)' : ` (${days}d left)`) : '';
+      w.append(row('Expires', whois.expires + label, cls));
+    }
+    if (whois.updated) w.append(row('Updated', whois.updated));
+    if (whois.country) w.append(row('Country', whois.country));
+    if (whois.status.length) { w.append(sep()); whois.status.forEach(s => w.append(row('Status', s, 'green'))); }
+    if (whois.nameservers.length) {
+      w.append(sep()); w.append(section('DNS Servers'));
+      whois.nameservers.forEach(ns => w.append(row('', ns, 'dim')));
+    }
+  }
+  $('card-whois').classList.remove('hidden');
+
+  // DNS
+  const dnsBody = $('body-dns'); dnsBody.innerHTML = '';
+  for (const t of ['A','AAAA','MX','CNAME','NS','SOA']) {
+    const recs = d.dns[t] || [];
+    if (recs.length) {
+      dnsBody.append(section(`${t} (${recs.length})`));
+      recs.forEach(r => dnsBody.append(row('', r, (t==='A'||t==='AAAA') ? 'green' : 'dim')));
+    }
+  }
+  if ((d.dns.TXT||[]).length) {
+    dnsBody.append(sep()); dnsBody.append(section(`TXT (${d.dns.TXT.length})`));
+    d.dns.TXT.forEach(t => dnsBody.append(row('', t, 'dim')));
+  }
+  $('card-dns').classList.remove('hidden');
+
+  // IP
+  const ipBody = $('body-ip'); ipBody.innerHTML = '';
+  if (!d.ip_info.length) ipBody.append(row('', 'No A/AAAA records', 'red'));
+  else {
+    d.ip_info.forEach(info => {
+      ipBody.append(section(info.ip));
+      if (info.ptr) ipBody.append(row('PTR', info.ptr, 'green'));
+      if (info.org) ipBody.append(row('Provider', info.org, 'yellow'));
+      if (info.netname) ipBody.append(row('NetName', info.netname));
+      if (info.range) ipBody.append(row('Range', info.range));
+      if (info.country) ipBody.append(row('Country', info.country));
+      if (info.abuse) ipBody.append(row('Abuse', info.abuse, 'red'));
+      ipBody.append(sep());
+    });
+  }
+  $('card-ip').classList.remove('hidden');
+
+  // Summary
+  const s = $('body-summary'); s.innerHTML = '';
+  s.append(row('Target', d.target, 'green'));
+  s.append(row('Registrar', whois.registrar || '—'));
+  if (whois.expires) {
+    const days = whois.expires_days;
+    const cls = days === null ? '' : days < 0 ? 'red' : days < 30 ? 'yellow' : 'green';
+    const label = days !== null ? (days < 0 ? ' (EXPIRED)' : ` (${days}d left)`) : '';
+    s.append(row('Expires', whois.expires + label, cls));
+  }
+  s.append(row('A Records', d.dns.A.length ? `${d.dns.A.length} — ${d.dns.A.slice(0,4).join(', ')}` : 'none'));
+  s.append(row('Nameservers', `${whois.nameservers.length} found`));
+  if (d.dns.MX.length) s.append(row('MX', `${d.dns.MX.length} records`));
+  if (d.dns.AAAA.length) s.append(row('AAAA', `${d.dns.AAAA.length} records`));
+  $('card-summary').classList.remove('hidden');
+}
+
+function renderIP(d) {
+  $('body-whois').innerHTML = '';
+  $('body-whois').append(row('PTR', d.ptr || '(none)', d.ptr ? 'green' : 'red'));
+  $('card-whois').classList.remove('hidden');
+
+  const dnsBody = $('body-dns'); dnsBody.innerHTML = '';
+  const w = d.whois;
+  if (!w.org && !w.netname) dnsBody.append(row('', 'No WHOIS data', 'red'));
+  else {
+    if (w.range) dnsBody.append(row('Range', w.range));
+    if (w.netname) dnsBody.append(row('NetName', w.netname, 'green'));
+    if (w.org) dnsBody.append(row('Organization', w.org, 'yellow'));
+    if (w.descr) dnsBody.append(row('Description', w.descr));
+    if (w.country) dnsBody.append(row('Country', w.country));
+    if (w.abuse) dnsBody.append(row('Abuse', w.abuse, 'red'));
+  }
+  $('card-dns').classList.remove('hidden');
+
+  $('card-ip').classList.add('hidden');
+
+  const s = $('body-summary'); s.innerHTML = '';
+  s.append(row('IP', d.target, 'green'));
+  s.append(row('PTR', d.ptr || '—', d.ptr ? 'green' : 'dim'));
+  if (w.org) s.append(row('Provider', w.org, 'yellow'));
+  if (w.range) s.append(row('Range', w.range));
+  if (w.country) s.append(row('Country', w.country));
+  $('card-summary').classList.remove('hidden');
+}
+
+$('search').addEventListener('keydown', e => { if (e.key === 'Enter') go(); });
+</script>
+</body>
+</html>
