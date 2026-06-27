@@ -4,7 +4,7 @@ Desktop GUI for [nxlookup](https://github.com/nexxrt/nxlookup) — domain & IP i
 
 Built with Flask + pywebview.
 
-![screenshot](screenshots/nxlookup-ui_QagktcLVnv.png)
+![screenshot](screenshots/nxlookup-web_QagktcLVnv.png)
 
 ## Install & Run
 
