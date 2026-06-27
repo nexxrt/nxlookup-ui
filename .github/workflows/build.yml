@@ -12,16 +12,16 @@ jobs:
       - uses: actions/setup-python@v5
         with: { python-version: '3.12' }
       - run: pip install -r requirements.txt pyinstaller
-      - run: pyinstaller --onefile --noconsole --noupx --name "nxlookup-web" --icon nxlookup.ico --add-data "nxlookup_web/templates;nxlookup_web/templates" run.py
-      - run: Compress-Archive -Path dist/nxlookup-web.exe -DestinationPath dist/nxlookup-web.zip
+      - run: pyinstaller --onefile --noconsole --noupx --name "nxlookup-ui" --icon nxlookup.ico --add-data "nxlookup_ui/templates;nxlookup_ui/templates" run.py
+      - run: Compress-Archive -Path dist/nxlookup-ui.exe -DestinationPath dist/nxlookup-ui.zip
       - uses: actions/upload-artifact@v4
-        with: { name: nxlookup-web-windows, path: 'dist/nxlookup-web.*' }
+        with: { name: nxlookup-ui-windows, path: 'dist/nxlookup-ui.*' }
   release:
     needs: build
     runs-on: ubuntu-latest
     permissions: { contents: write }
     steps:
       - uses: actions/download-artifact@v4
-        with: { name: nxlookup-web-windows }
+        with: { name: nxlookup-ui-windows }
       - uses: softprops/action-gh-release@v2
-        with: { files: 'nxlookup-web.*', generate_release_notes: true }
+        with: { files: 'nxlookup-ui.*', generate_release_notes: true }
