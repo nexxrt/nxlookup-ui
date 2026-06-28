@@ -7,6 +7,7 @@ import re
 import socket
 import ipaddress
 import subprocess
+import threading
 from typing import Optional
 
 # ── Optional dependencies ──────────────────────────────────────────────
@@ -31,17 +32,17 @@ HAS_WHOIS = shutil.which("whois") is not None
 # ── DNS ────────────────────────────────────────────────────────────────
 
 def dns_resolve(domain: str, rtype: str) -> list[str]:
-    """Resolve DNS records. Uses dnspython if available, falls back to dig."""
+    """Resolve DNS records (0.5s timeout)."""
     if HAS_DNSPYTHON:
         try:
-            answers = dns.resolver.resolve(domain, rtype)
+            answers = dns.resolver.resolve(domain, rtype, lifetime=0.5)
             return [str(r).rstrip('.') for r in answers]
         except Exception:
             pass
     if HAS_DIG:
         try:
             out = subprocess.run(["dig", "+short", domain, rtype],
-                               capture_output=True, text=True, timeout=15)
+                               capture_output=True, text=True, timeout=5)
             return [l.strip().rstrip('.') for l in out.stdout.splitlines() if l.strip()]
         except Exception:
             pass
@@ -50,21 +51,30 @@ def dns_resolve(domain: str, rtype: str) -> list[str]:
 
 def dns_all(domain: str) -> dict:
     types = ["A", "AAAA", "MX", "NS", "TXT", "SOA", "CNAME"]
-    return {t: dns_resolve(domain, t) for t in types}
+    result = {t: [] for t in types}
+
+    def _do():
+        for t in types:
+            result[t] = dns_resolve(domain, t)
+
+    t = threading.Thread(target=_do, daemon=True)
+    t.start()
+    t.join(timeout=3)
+    return result
 
 
 def ptr_lookup(ip: str) -> str:
     if HAS_DNSPYTHON:
         try:
             addr = dns.reversename.from_address(ip)
-            answers = dns.resolver.resolve(addr, "PTR")
+            answers = dns.resolver.resolve(addr, "PTR", lifetime=1)
             return str(answers[0]).rstrip('.')
         except Exception:
             pass
     if HAS_DIG:
         try:
             out = subprocess.run(["dig", "+short", "-x", ip],
-                               capture_output=True, text=True, timeout=10)
+                               capture_output=True, text=True, timeout=5)
             return out.stdout.strip().rstrip('.')
         except Exception:
             pass
@@ -271,53 +281,87 @@ def ssl_check(domain: str) -> dict:
     from datetime import datetime, timezone
     result = {"ok": False, "subject_cn": "", "subject_o": "", "issuer_cn": "", "issuer_o": "",
               "not_before": "", "not_after": "", "days": None, "error": ""}
-    try:
+
+    def _do_ssl():
+        last_error = ""
         ctx = _ssl.create_default_context()
-        with _socket.create_connection((domain, 443), timeout=8) as sock:
-            with ctx.wrap_socket(sock, server_hostname=domain) as ssock:
-                cert = ssock.getpeercert()
-        result["ok"] = True
-        for item in cert.get("subject", []):
-            for k, v in item:
-                if k == "commonName": result["subject_cn"] = v
-                if k == "organizationName": result["subject_o"] = v
-        for item in cert.get("issuer", []):
-            for k, v in item:
-                if k == "commonName": result["issuer_cn"] = v
-                if k == "organizationName": result["issuer_o"] = v
-        result["not_before"] = cert.get("notBefore", "")
-        result["not_after"] = cert.get("notAfter", "")
-        if result["not_after"]:
-            end = datetime.strptime(result["not_after"], "%b %d %H:%M:%S %Y %Z")
-            result["days"] = (end.replace(tzinfo=timezone.utc) - datetime.now(timezone.utc)).days
-        return result
-    except Exception as e:
-        result["error"] = str(e)
-        return result
+
+        for family in (_socket.AF_INET, _socket.AF_INET6):
+            try:
+                addrs = _socket.getaddrinfo(domain, 443, family, _socket.SOCK_STREAM)
+                if addrs:
+                    ip = addrs[0][4][0]
+                    try:
+                        sock = _socket.create_connection((ip, 443), timeout=3)
+                        sock.settimeout(3)
+                        with ctx.wrap_socket(sock, server_hostname=domain) as ssock:
+                            cert = ssock.getpeercert()
+                        result["ok"] = True
+                        for item in cert.get("subject", []):
+                            for k, v in item:
+                                if k == "commonName": result["subject_cn"] = v
+                                if k == "organizationName": result["subject_o"] = v
+                        for item in cert.get("issuer", []):
+                            for k, v in item:
+                                if k == "commonName": result["issuer_cn"] = v
+                                if k == "organizationName": result["issuer_o"] = v
+                        result["not_before"] = cert.get("notBefore", "")
+                        result["not_after"] = cert.get("notAfter", "")
+                        if result["not_after"]:
+                            end = datetime.strptime(result["not_after"], "%b %d %H:%M:%S %Y %Z")
+                            result["days"] = (end.replace(tzinfo=timezone.utc) - datetime.now(timezone.utc)).days
+                        return
+                    except Exception as e:
+                        last_error = str(e)
+            except Exception:
+                continue
+        result["error"] = last_error or "No SSL / connection failed"
+
+    t = threading.Thread(target=_do_ssl, daemon=True)
+    t.start()
+    t.join(timeout=7)
+    if t.is_alive():
+        result["error"] = "No SSL / connection failed (timeout)"
+    return result
 
 def http_check(domain: str) -> dict:
     import ssl as _ssl, socket as _socket, re as _re
     result = {"https": 0, "http": 0, "redirect": "", "error": ""}
     for proto, port, key in [("https", 443, "https"), ("http", 80, "http")]:
-        try:
-            ctx = _ssl.create_default_context() if proto == "https" else None
-            s = _socket.create_connection((domain, port), timeout=8)
-            if ctx: s = ctx.wrap_socket(s, server_hostname=domain)
-            s.sendall(f"HEAD / HTTP/1.1\r\nHost: {domain}\r\nConnection: close\r\n\r\n".encode())
-            resp = b""
-            while True:
-                chunk = s.recv(4096)
-                if not chunk: break
-                resp += chunk
-                if b"\r\n\r\n" in resp: break
-            s.close()
-            m = _re.match(rb"HTTP/\S+\s+(\d+)", resp.split(b"\r\n")[0])
-            if m: result[key] = int(m.group(1))
-            headers = resp.decode(errors="replace")
-            loc = _re.search(r"(?i)^Location:\s*(.+)", headers, _re.MULTILINE)
-            if loc: result["redirect"] = loc.group(1).strip()
-        except Exception as e:
-            if not result["error"]: result["error"] = str(e)
+        last_error = ""
+        for family in (_socket.AF_INET, _socket.AF_INET6):
+            try:
+                addrs = _socket.getaddrinfo(domain, port, family, _socket.SOCK_STREAM)
+                for addr in addrs:
+                    ip = addr[4][0]
+                    try:
+                        ctx = _ssl.create_default_context() if proto == "https" else None
+                        s = _socket.create_connection((ip, port), timeout=3)
+                        s.settimeout(5)
+                        if ctx: s = ctx.wrap_socket(s, server_hostname=domain)
+                        s.sendall(f"HEAD / HTTP/1.1\r\nHost: {domain}\r\nConnection: close\r\n\r\n".encode())
+                        resp = b""
+                        while True:
+                            chunk = s.recv(4096)
+                            if not chunk: break
+                            resp += chunk
+                            if b"\r\n\r\n" in resp: break
+                        s.close()
+                        m = _re.match(rb"HTTP/\S+\s+(\d+)", resp.split(b"\r\n")[0])
+                        if m: result[key] = int(m.group(1))
+                        headers = resp.decode(errors="replace")
+                        loc = _re.search(r"(?i)^Location:\s*(.+)", headers, _re.MULTILINE)
+                        if loc: result["redirect"] = loc.group(1).strip()
+                        break
+                    except Exception as e:
+                        last_error = str(e)
+                        continue
+                if result[key]:
+                    break
+            except Exception:
+                continue
+        if not result[key] and last_error and not result["error"]:
+            result["error"] = last_error
     result["ok"] = result["https"] > 0 or result["http"] > 0
     return result
 def is_ip(target: str) -> bool:

@@ -66,8 +66,13 @@ def _lookup_domain(domain: str, display: str) -> dict:
             "abuse": iw.get("abuse", ""),
         })
 
-    ssl = ssl_check(domain)
-    http = http_check(domain)
+    # SSL/HTTP — skip if no A/AAAA records
+    if ips:
+        ssl = ssl_check(domain)
+        http = http_check(domain)
+    else:
+        ssl = {"ok": False, "error": "No A/AAAA records"}
+        http = {"ok": False, "error": "No A/AAAA records"}
 
     return {
         "type": "domain",
