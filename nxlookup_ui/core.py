@@ -107,9 +107,9 @@ def _socket_whois(iana_query: str, referral_query: str, skip_iana: bool = False)
         s.close()
         text = resp.decode("utf-8", errors="replace")
 
-        m = re.search(r'(?i)^refer:\s*(\S+)', text, re.MULTILINE)
+        m = re.search(r'(?i)^refer:[^\S\n]*(\S+)', text, re.MULTILINE)
         if not m:
-            m = re.search(r'(?i)^whois:\s*(\S+)', text, re.MULTILINE)
+            m = re.search(r'(?i)^whois:[^\S\n]*(\S+)', text, re.MULTILINE)
         if not m:
             return text
 
