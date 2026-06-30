@@ -134,6 +134,11 @@ def _domain_whois_socket(domain: str) -> str:
     _fallback = {'ru': 'whois.nic.ru'}
     if ('No entries found' in result or 'No match for' in result) and tld in _fallback:
         result = _socket_whois(_fallback[tld], domain, skip_iana=True)
+    if ('No entries found' in result or 'No match for' in result):
+        parts = domain.lower().rstrip('.').split('.')
+        if len(parts) >= 3:
+            sld = '.'.join(parts[-2:])
+            result = _socket_whois(tld, sld)
     return result
 
 
