@@ -83,8 +83,19 @@ def ptr_lookup(ip: str) -> str:
 
 # ── WHOIS ──────────────────────────────────────────────────────────────
 
-def _socket_whois(iana_query: str, referral_query: str) -> str:
+def _socket_whois(iana_query: str, referral_query: str, skip_iana: bool = False) -> str:
     try:
+        if skip_iana:
+            s2 = socket.create_connection((iana_query, 43), timeout=10)
+            s2.sendall((referral_query + "\r\n").encode())
+            resp2 = b""
+            while True:
+                chunk = s2.recv(4096)
+                if not chunk: break
+                resp2 += chunk
+            s2.close()
+            return resp2.decode("utf-8", errors="replace")
+
         s = socket.create_connection(("whois.iana.org", 43), timeout=10)
         s.sendall((iana_query + "\r\n").encode())
         resp = b""
@@ -118,9 +129,12 @@ def _socket_whois(iana_query: str, referral_query: str) -> str:
 
 
 def _domain_whois_socket(domain: str) -> str:
-    # Always use the actual TLD (last part) for IANA referral.
     tld = domain.lower().rstrip('.').split('.')[-1]
-    return _socket_whois(tld, domain)
+    result = _socket_whois(tld, domain)
+    _fallback = {'ru': 'whois.nic.ru'}
+    if ('No entries found' in result or 'No match for' in result) and tld in _fallback:
+        result = _socket_whois(_fallback[tld], domain, skip_iana=True)
+    return result
 
 
 def _ip_whois_socket(ip: str) -> str:
