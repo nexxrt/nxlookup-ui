@@ -118,11 +118,8 @@ def _socket_whois(iana_query: str, referral_query: str) -> str:
 
 
 def _domain_whois_socket(domain: str) -> str:
-    parts = domain.lower().rstrip('.').split('.')
-    if len(parts) >= 2 and parts[-2] in ('co', 'org', 'net', 'com', 'gov', 'ac', 'me', 'ltd', 'plc', 'sch'):
-        tld = parts[-2] + '.' + parts[-1]
-    else:
-        tld = parts[-1]
+    # Always use the actual TLD (last part) for IANA referral.
+    tld = domain.lower().rstrip('.').split('.')[-1]
     return _socket_whois(tld, domain)
 
 
