@@ -295,6 +295,7 @@ def ip_whois(ip: str) -> dict:
 def ssl_check(domain: str) -> dict:
     import ssl as _ssl, socket as _socket
     from datetime import datetime, timezone
+    domain = domain.lower()
     result = {"ok": False, "subject_cn": "", "subject_o": "", "issuer_cn": "", "issuer_o": "",
               "not_before": "", "not_after": "", "days": None, "error": ""}
 
@@ -342,18 +343,18 @@ def ssl_check(domain: str) -> dict:
 
 def http_check(domain: str) -> dict:
     import ssl as _ssl, socket as _socket, re as _re
+    domain = domain.lower()
     result = {"https": 0, "http": 0, "redirect": "", "error": ""}
     for proto, port, key in [("https", 443, "https"), ("http", 80, "http")]:
-        last_error = ""
+        ctx = _ssl.create_default_context() if proto == "https" else None
         for family in (_socket.AF_INET, _socket.AF_INET6):
             try:
                 addrs = _socket.getaddrinfo(domain, port, family, _socket.SOCK_STREAM)
-                for addr in addrs:
-                    ip = addr[4][0]
+                if addrs:
+                    ip = addrs[0][4][0]
                     try:
-                        ctx = _ssl.create_default_context() if proto == "https" else None
-                        s = _socket.create_connection((ip, port), timeout=3)
-                        s.settimeout(5)
+                        s = _socket.create_connection((ip, port), timeout=2)
+                        s.settimeout(2)
                         if ctx: s = ctx.wrap_socket(s, server_hostname=domain)
                         s.sendall(f"HEAD / HTTP/1.1\r\nHost: {domain}\r\nConnection: close\r\n\r\n".encode())
                         resp = b""
@@ -369,15 +370,12 @@ def http_check(domain: str) -> dict:
                         loc = _re.search(r"(?i)^Location:\s*(.+)", headers, _re.MULTILINE)
                         if loc: result["redirect"] = loc.group(1).strip()
                         break
-                    except Exception as e:
-                        last_error = str(e)
+                    except Exception:
                         continue
-                if result[key]:
-                    break
             except Exception:
                 continue
-        if not result[key] and last_error and not result["error"]:
-            result["error"] = last_error
+            if result[key]:
+                break
     result["ok"] = result["https"] > 0 or result["http"] > 0
     return result
 def is_ip(target: str) -> bool:
